@@ -6,7 +6,6 @@ import triangle as tr
 
 st.set_page_config(page_title="Генератор сітки", layout="wide", initial_sidebar_state="collapsed")
 
-# Зменшуємо верхні відступи та розмір заголовка
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem; padding-bottom: 0rem; }
@@ -39,7 +38,23 @@ with col_right:
 
         vertices = mesh['vertices']
         triangles = mesh.get('triangles', [])
-        markers = mesh.get('vertex_markers', np.zeros((len(vertices), 1)))
+        
+        # Функція для маркування вузлів за конкретною гранню
+        def get_edge_marker(p, polygon_pts):
+            tol = 1e-5
+            for i in range(len(polygon_pts)):
+                p1 = polygon_pts[i]
+                p2 = polygon_pts[(i+1) % len(polygon_pts)]
+                # Перевірка чи лежить точка p на відрізку p1-p2
+                d_p1_p = np.linalg.norm(p - p1)
+                d_p_p2 = np.linalg.norm(p2 - p)
+                d_p1_p2 = np.linalg.norm(p2 - p1)
+                if abs(d_p1_p + d_p_p2 - d_p1_p2) < tol:
+                    return f"Грань {i+1}"
+            return "Внутрішній (0)"
+
+        # Застосовуємо маркування до всіх вузлів
+        custom_markers = [get_edge_marker(v, pts) for v in vertices]
 
         m1, m2, m3 = st.columns(3)
         m1.metric("🔴 Вузлів", len(vertices))
@@ -49,7 +64,7 @@ with col_right:
         tab1, tab2 = st.tabs(["📊 Візуалізація", "🗄 Дані (Матриці)"])
 
         with tab1:
-            fig, ax = plt.subplots(figsize=(8, 4)) # Зменшено висоту
+            fig, ax = plt.subplots(figsize=(8, 4))
             ax.set_facecolor('#ffffff')
             
             if len(triangles) > 0:
@@ -76,10 +91,15 @@ with col_right:
         with tab2:
             col_t1, col_t2 = st.columns(2)
             with col_t1:
-                st.markdown("#### Координати вузлів")
+                st.markdown("#### Координати та маркування границь")
                 df_nodes = pd.DataFrame(vertices, columns=['X', 'Y'])
-                df_nodes['Межа'] = markers
-                st.dataframe(df_nodes.style.highlight_max(axis=0, color='#e2e3e5'), use_container_width=True, height=280)
+                df_nodes['Розташування'] = custom_markers
+                
+                # Підсвічуємо межі кольором для наочності
+                def highlight_edges(val):
+                    return 'background-color: #d1ecf1' if 'Грань' in str(val) else ''
+                
+                st.dataframe(df_nodes.style.map(highlight_edges, subset=['Розташування']), use_container_width=True, height=280)
                 
             with col_t2:
                 st.markdown("#### Масив зв'язності")
