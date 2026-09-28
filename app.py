@@ -5,10 +5,15 @@ import matplotlib.pyplot as plt
 import triangle as tr
 
 st.set_page_config(page_title="Генератор сітки", layout="wide", initial_sidebar_state="collapsed")
-st.markdown("<h2 style='text-align: center; color: #2C3E50;'>Система розбиття області на скінченні елементи</h2>", unsafe_allow_html=True)
-st.markdown("---")
 
-# Розподіл екрана на ліву (налаштування) та праву (результати) колонки
+# Зменшуємо верхні відступи та розмір заголовка
+st.markdown("""
+    <style>
+        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    </style>
+    <h3 style='text-align: center; color: #2C3E50; margin-bottom: 0;'>Система розбиття області на скінченні елементи</h3>
+""", unsafe_allow_html=True)
+
 col_left, col_right = st.columns([1, 2.2])
 
 with col_left:
@@ -44,7 +49,7 @@ with col_right:
         tab1, tab2 = st.tabs(["📊 Візуалізація", "🗄 Дані (Матриці)"])
 
         with tab1:
-            fig, ax = plt.subplots(figsize=(8, 5))
+            fig, ax = plt.subplots(figsize=(8, 4)) # Зменшено висоту
             ax.set_facecolor('#ffffff')
             
             if len(triangles) > 0:
@@ -74,13 +79,13 @@ with col_right:
                 st.markdown("#### Координати вузлів")
                 df_nodes = pd.DataFrame(vertices, columns=['X', 'Y'])
                 df_nodes['Межа'] = markers
-                st.dataframe(df_nodes.style.highlight_max(axis=0, color='#e2e3e5'), use_container_width=True, height=400)
+                st.dataframe(df_nodes.style.highlight_max(axis=0, color='#e2e3e5'), use_container_width=True, height=280)
                 
             with col_t2:
                 st.markdown("#### Масив зв'язності")
                 if len(triangles) > 0:
                     df_tri = pd.DataFrame(triangles, columns=['Вуз A', 'Вуз B', 'Вуз C'])
-                    st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True, height=400)
+                    st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True, height=280)
 
     except Exception as e:
         st.error(f"Помилка: {e}")
