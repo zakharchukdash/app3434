@@ -39,13 +39,11 @@ with col_right:
         vertices = mesh['vertices']
         triangles = mesh.get('triangles', [])
         
-        # Функція для маркування вузлів за конкретною гранню
         def get_edge_marker(p, polygon_pts):
             tol = 1e-5
             for i in range(len(polygon_pts)):
                 p1 = polygon_pts[i]
                 p2 = polygon_pts[(i+1) % len(polygon_pts)]
-                # Перевірка чи лежить точка p на відрізку p1-p2
                 d_p1_p = np.linalg.norm(p - p1)
                 d_p_p2 = np.linalg.norm(p2 - p)
                 d_p1_p2 = np.linalg.norm(p2 - p1)
@@ -53,7 +51,6 @@ with col_right:
                     return f"Грань {i+1}"
             return "Внутрішній (0)"
 
-        # Застосовуємо маркування до всіх вузлів
         custom_markers = [get_edge_marker(v, pts) for v in vertices]
 
         m1, m2, m3 = st.columns(3)
@@ -88,7 +85,7 @@ with col_right:
             
             st.pyplot(fig, use_container_width=False)
 
-with tab2:
+        with tab2:
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 st.markdown("#### Координати та маркування границь")
@@ -98,15 +95,13 @@ with tab2:
                 def highlight_edges(val):
                     return 'background-color: #d1ecf1' if 'Грань' in str(val) else ''
                 
-                # Прибрано height=280
                 st.dataframe(df_nodes.style.map(highlight_edges, subset=['Розташування']), use_container_width=True)
                 
             with col_t2:
                 st.markdown("#### Масив зв'язності")
                 if len(triangles) > 0:
                     df_tri = pd.DataFrame(triangles, columns=['Вуз A', 'Вуз B', 'Вуз C'])
-                    
-                    # Прибрано height=280
                     st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True)
+
     except Exception as e:
         st.error(f"Помилка: {e}")
