@@ -88,24 +88,25 @@ with col_right:
             
             st.pyplot(fig, use_container_width=False)
 
-        with tab2:
+with tab2:
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 st.markdown("#### Координати та маркування границь")
                 df_nodes = pd.DataFrame(vertices, columns=['X', 'Y'])
                 df_nodes['Розташування'] = custom_markers
                 
-                # Підсвічуємо межі кольором для наочності
                 def highlight_edges(val):
                     return 'background-color: #d1ecf1' if 'Грань' in str(val) else ''
                 
-                st.dataframe(df_nodes.style.map(highlight_edges, subset=['Розташування']), use_container_width=True, height=280)
+                # Прибрано height=280
+                st.dataframe(df_nodes.style.map(highlight_edges, subset=['Розташування']), use_container_width=True)
                 
             with col_t2:
                 st.markdown("#### Масив зв'язності")
                 if len(triangles) > 0:
                     df_tri = pd.DataFrame(triangles, columns=['Вуз A', 'Вуз B', 'Вуз C'])
-                    st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True, height=280)
-
+                    
+                    # Прибрано height=280
+                    st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True)
     except Exception as e:
         st.error(f"Помилка: {e}")
