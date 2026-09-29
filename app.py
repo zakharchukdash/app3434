@@ -2,7 +2,8 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import triangle as tr
+from scipy.spatial import Delaunay
+from matplotlib.path import Path
 
 st.set_page_config(page_title="Генератор сітки", layout="wide", initial_sidebar_state="collapsed")
 
@@ -13,6 +14,112 @@ st.markdown("""
     <h3 style='text-align: center; color: #2C3E50; margin-bottom: 0;'>Система розбиття області на скінченні елементи</h3>
 """, unsafe_allow_html=True)
 
+# --- Допоміжні функції для ручної генерації сітки ---
+def calculate_triangle_properties(pts):
+    """Обчислює мінімальний кут, площу та центр описаного кола трикутника."""
+    A, B, C = pts[0], pts[1], pts[2]
+    a = np.linalg.norm(B - C)
+    b = np.linalg.norm(A - C)
+    c = np.linalg.norm(A - B)
+    
+    # Площа (формула Герона)
+    s = (a + b + c) / 2.0
+    area = np.sqrt(max(s * (s - a) * (s - b) * (s - c), 0))
+    
+    # Мінімальний кут (теорема косинусів)
+    angles = []
+    for x, y, z in [(a,b,c), (b,a,c), (c,a,b)]:
+        val = np.clip((y**2 + z**2 - x**2) / (2 * y * z), -1.0, 1.0)
+        angles.append(np.degrees(np.arccos(val)))
+        
+    # Центр описаного кола
+    D = 2 * (A[0]*(B[1]-C[1]) + B[0]*(C[1]-A[1]) + C[0]*(A[1]-B[1]))
+    if abs(D) < 1e-10:
+        return min(angles), area, None
+        
+    Ux = ((A[0]**2 + A[1]**2)*(B[1]-C[1]) + (B[0]**2 + B[1]**2)*(C[1]-A[1]) + (C[0]**2 + C[1]**2)*(A[1]-B[1])) / D
+    Uy = ((A[0]**2 + A[1]**2)*(C[0]-B[0]) + (B[0]**2 + B[1]**2)*(A[0]-C[0]) + (C[0]**2 + C[1]**2)*(B[0]-A[0])) / D
+    
+    return min(angles), area, [Ux, Uy]
+
+def generate_custom_mesh(polygon, min_angle, max_area, max_iter=300):
+    """Алгоритм ітеративного згущення сітки (наближення до алгоритму Рупперта)."""
+    # 1. Дискретизація границь (щоб уникнути великих трикутників на краях)
+    target_len = np.sqrt(max_area) * 1.5
+    points = []
+    for i in range(len(polygon)):
+        p1 = polygon[i]
+        p2 = polygon[(i+1) % len(polygon)]
+        L = np.linalg.norm(p2 - p1)
+        n_segs = max(1, int(np.ceil(L / target_len)))
+        for j in range(n_segs):
+            points.append(p1 + (p2 - p1) * (j / n_segs))
+            
+    points = np.array(points)
+    path = Path(polygon)
+    
+    # 2. Ітеративне додавання точок (Delaunay Refinement)
+    for _ in range(max_iter):
+        tri = Delaunay(points)
+        simplices = tri.simplices
+        
+        # Відсікання трикутників поза межами області (неопуклі форми)
+        centroids = np.mean(points[simplices], axis=1)
+        mask = path.contains_points(centroids, radius=-1e-5)
+        simplices = simplices[mask]
+        
+        bad_triangles = []
+        for s in simplices:
+            angle, area, cc = calculate_triangle_properties(points[s])
+            if cc is not None:
+                if area > max_area or angle < min_angle:
+                    # Пріоритет: чим гірший трикутник, тим більший бал
+                    score = max(0, area - max_area) / max_area + max(0, min_angle - angle) / max(1, min_angle)
+                    bad_triangles.append((score, cc))
+                    
+        if not bad_triangles:
+            break  # Усі трикутники задовольняють умови
+            
+        # Додаємо точку центру кола найгіршого трикутника
+        bad_triangles.sort(key=lambda x: x[0], reverse=True)
+        added = False
+        for _, cc in bad_triangles:
+            # Перевіряємо, чи точка всередині контуру і не занадто близько до існуючих
+            if path.contains_point(cc):
+                if np.min(np.linalg.norm(points - cc, axis=1)) > 1e-4:
+                    points = np.vstack([points, cc])
+                    added = True
+                    break
+        if not added:
+            break
+            
+    # Фінальна побудова та відфільтрування
+    tri = Delaunay(points)
+    simplices = tri.simplices
+    centroids = np.mean(points[simplices], axis=1)
+    mask = path.contains_points(centroids, radius=-1e-6)
+    return points, simplices[mask]
+
+def get_edge_markers(p, polygon_pts):
+    """Визначає, яким граням належить вузол (коректно обробляє кути)."""
+    tol = 1e-5
+    markers = []
+    for i in range(len(polygon_pts)):
+        p1 = polygon_pts[i]
+        p2 = polygon_pts[(i+1) % len(polygon_pts)]
+        d_p1_p = np.linalg.norm(p - p1)
+        d_p_p2 = np.linalg.norm(p2 - p)
+        d_p1_p2 = np.linalg.norm(p2 - p1)
+        
+        # Якщо сума відстаней дорівнює довжині відрізка, точка лежить на ньому
+        if abs(d_p1_p + d_p_p2 - d_p1_p2) < tol:
+            markers.append(f"Грань {i+1}")
+            
+    if not markers:
+        return "Внутрішній (0)"
+    return " + ".join(markers)
+
+# --- UI та Логіка додатку ---
 col_left, col_right = st.columns([1, 2.2])
 
 with col_left:
@@ -29,34 +136,18 @@ with col_right:
     try:
         pts = edited_df[['X', 'Y']].dropna().to_numpy()
         if len(pts) < 3:
-            st.warning("Додайте мінімум 3 точки.")
+            st.warning("Додайте мінімум 3 точки для утворення контуру.")
             st.stop()
 
-        seg = np.array([[i, (i+1)%len(pts)] for i in range(len(pts))])
-        A = dict(vertices=pts, segments=seg)
-        mesh = tr.triangulate(A, f'pq{min_angle}a{max_area}')
+        # Виклик нашого власного генератора
+        vertices, triangles = generate_custom_mesh(pts, min_angle, max_area)
 
-        vertices = mesh['vertices']
-        triangles = mesh.get('triangles', [])
-        
-        def get_edge_marker(p, polygon_pts):
-            tol = 1e-5
-            for i in range(len(polygon_pts)):
-                p1 = polygon_pts[i]
-                p2 = polygon_pts[(i+1) % len(polygon_pts)]
-                d_p1_p = np.linalg.norm(p - p1)
-                d_p_p2 = np.linalg.norm(p2 - p)
-                d_p1_p2 = np.linalg.norm(p2 - p1)
-                if abs(d_p1_p + d_p_p2 - d_p1_p2) < tol:
-                    return f"Грань {i+1}"
-            return "Внутрішній (0)"
-
-        custom_markers = [get_edge_marker(v, pts) for v in vertices]
+        custom_markers = [get_edge_markers(v, pts) for v in vertices]
 
         m1, m2, m3 = st.columns(3)
         m1.metric("🔴 Вузлів", len(vertices))
         m2.metric("🔺 Трикутників", len(triangles))
-        m3.metric("✅ Делоне", "Виконано")
+        m3.metric("✅ Делоне", "Власний алгоритм")
 
         tab1, tab2 = st.tabs(["📊 Візуалізація", "🗄 Дані (Матриці)"])
 
@@ -70,18 +161,21 @@ with col_right:
                 
                 if show_labels:
                     for i, p_val in enumerate(vertices):
-                        ax.text(p_val[0], p_val[1]+0.03, f"{i}", color='#C0392B', fontsize=8, fontweight='bold', ha='center')
+                        ax.text(p_val[0], p_val[1]+0.02, f"{i}", color='#C0392B', fontsize=8, fontweight='bold', ha='center')
                         
                     for i, t in enumerate(triangles):
                         pt = np.mean(vertices[t], axis=0)
                         ax.text(pt[0], pt[1], f"{i}", color='#2980B9', fontsize=8, ha='center', va='center')
-                    
+            
+            # Малювання вихідного контуру для перевірки
+            polygon_pts = np.vstack((pts, pts[0]))
+            ax.plot(polygon_pts[:,0], polygon_pts[:,1], 'g--', linewidth=1.5, alpha=0.5, label="Контур")
+
             ax.set_aspect('equal')
             ax.margins(0.1)
             ax.grid(True, linestyle='--', alpha=0.5, color='#BDC3C7')
             ax.set_xlabel('X', fontweight='bold')
             ax.set_ylabel('Y', fontweight='bold')
-            ax.set_axisbelow(True)
             
             st.pyplot(fig, use_container_width=False)
 
@@ -104,4 +198,4 @@ with col_right:
                     st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True)
 
     except Exception as e:
-        st.error(f"Помилка: {e}")
+        st.error(f"Помилка генерації: {e}. Спробуйте змінити параметри (наприклад, зменшити вимоги до кута).")
