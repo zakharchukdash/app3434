@@ -141,7 +141,7 @@ with col_right:
         m1, m2, m3 = st.columns(3)
         m1.metric("🔴 Вузлів", len(vertices))
         m2.metric("🔺 Трикутників", len(triangles))
-        m3.metric("✅ Делоне", "Власний алгоритм")
+        m3.metric("✅ Делоне", "Виконано")
 
         tab1, tab2 = st.tabs(["📊 Візуалізація", "🗄 Дані (Матриці)"])
 
