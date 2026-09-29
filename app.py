@@ -14,7 +14,6 @@ st.markdown("""
     <h3 style='text-align: center; color: #2C3E50; margin-bottom: 0;'>Система розбиття області на скінченні елементи</h3>
 """, unsafe_allow_html=True)
 
-# --- Допоміжні функції для ручної генерації сітки ---
 def calculate_triangle_properties(pts):
     """Обчислює мінімальний кут, площу та центр описаного кола трикутника."""
     A, B, C = pts[0], pts[1], pts[2]
@@ -42,9 +41,8 @@ def calculate_triangle_properties(pts):
     
     return min(angles), area, [Ux, Uy]
 
-def generate_custom_mesh(polygon, min_angle, max_area, max_iter=300):
-    """Алгоритм ітеративного згущення сітки (наближення до алгоритму Рупперта)."""
-    # 1. Дискретизація границь (щоб уникнути великих трикутників на краях)
+def generate_custom_mesh(polygon, min_angle, max_area, max_iter=500):
+    """Алгоритм ітеративного згущення з гарантованим розбиттям границь."""
     target_len = np.sqrt(max_area) * 1.5
     points = []
     for i in range(len(polygon)):
@@ -58,7 +56,6 @@ def generate_custom_mesh(polygon, min_angle, max_area, max_iter=300):
     points = np.array(points)
     path = Path(polygon)
     
-    # 2. Ітеративне додавання точок (Delaunay Refinement)
     for _ in range(max_iter):
         tri = Delaunay(points)
         simplices = tri.simplices
@@ -73,27 +70,27 @@ def generate_custom_mesh(polygon, min_angle, max_area, max_iter=300):
             angle, area, cc = calculate_triangle_properties(points[s])
             if cc is not None:
                 if area > max_area or angle < min_angle:
-                    # Пріоритет: чим гірший трикутник, тим більший бал
-                    score = max(0, area - max_area) / max_area + max(0, min_angle - angle) / max(1, min_angle)
-                    bad_triangles.append((score, cc))
+                    score = max(0, area - max_area) + max(0, min_angle - angle)
+                    centroid = np.mean(points[s], axis=0) # Рахуємо центр мас
+                    bad_triangles.append((score, cc, centroid))
                     
         if not bad_triangles:
-            break  # Усі трикутники задовольняють умови
+            break
             
-        # Додаємо точку центру кола найгіршого трикутника
         bad_triangles.sort(key=lambda x: x[0], reverse=True)
         added = False
-        for _, cc in bad_triangles:
-            # Перевіряємо, чи точка всередині контуру і не занадто близько до існуючих
-            if path.contains_point(cc):
-                if np.min(np.linalg.norm(points - cc, axis=1)) > 1e-4:
-                    points = np.vstack([points, cc])
-                    added = True
-                    break
+        for _, cc, centroid in bad_triangles:
+            # Якщо центр кола зовні, розбиваємо по центру мас трикутника
+            candidate = cc if path.contains_point(cc) else centroid
+            
+            if np.min(np.linalg.norm(points - candidate, axis=1)) > 1e-3:
+                points = np.vstack([points, candidate])
+                added = True
+                break
+                
         if not added:
             break
             
-    # Фінальна побудова та відфільтрування
     tri = Delaunay(points)
     simplices = tri.simplices
     centroids = np.mean(points[simplices], axis=1)
@@ -111,7 +108,6 @@ def get_edge_markers(p, polygon_pts):
         d_p_p2 = np.linalg.norm(p2 - p)
         d_p1_p2 = np.linalg.norm(p2 - p1)
         
-        # Якщо сума відстаней дорівнює довжині відрізка, точка лежить на ньому
         if abs(d_p1_p + d_p_p2 - d_p1_p2) < tol:
             markers.append(f"Грань {i+1}")
             
@@ -119,7 +115,6 @@ def get_edge_markers(p, polygon_pts):
         return "Внутрішній (0)"
     return " + ".join(markers)
 
-# --- UI та Логіка додатку ---
 col_left, col_right = st.columns([1, 2.2])
 
 with col_left:
@@ -139,7 +134,6 @@ with col_right:
             st.warning("Додайте мінімум 3 точки для утворення контуру.")
             st.stop()
 
-        # Виклик нашого власного генератора
         vertices, triangles = generate_custom_mesh(pts, min_angle, max_area)
 
         custom_markers = [get_edge_markers(v, pts) for v in vertices]
@@ -161,13 +155,12 @@ with col_right:
                 
                 if show_labels:
                     for i, p_val in enumerate(vertices):
-                        ax.text(p_val[0], p_val[1]+0.02, f"{i}", color='#C0392B', fontsize=8, fontweight='bold', ha='center')
+                        ax.text(p_val[0], p_val[1]+0.03, f"{i}", color='#C0392B', fontsize=8, fontweight='bold', ha='center')
                         
                     for i, t in enumerate(triangles):
                         pt = np.mean(vertices[t], axis=0)
                         ax.text(pt[0], pt[1], f"{i}", color='#2980B9', fontsize=8, ha='center', va='center')
             
-            # Малювання вихідного контуру для перевірки
             polygon_pts = np.vstack((pts, pts[0]))
             ax.plot(polygon_pts[:,0], polygon_pts[:,1], 'g--', linewidth=1.5, alpha=0.5, label="Контур")
 
