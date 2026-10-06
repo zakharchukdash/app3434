@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
 
-# Налаштування базового вигляду сторінки у браузері
+# Базові налаштування сторінки
 st.set_page_config(page_title="Генератор сітки", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -130,7 +130,7 @@ with col_left:
     edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True, height=160)
     
     # Дефолтні умови варіанта 6:
-    # Грань 1 (нижня): 3-й род, Грань 2 (права): 1-й род, Грань 3 (верхня): 3-й род, Грань 4 (ліва): 2-й род
+    # Грань 1: 3-й род, Грань 2: 1-й род, Грань 3: 3-й род, Грань 4: 2-й род
     bc_options = ["1° род (u=0)", "2° род (Nu=0)", "3° род (βNu+δ(u-uc)=0)"]
     v6_presets = [bc_options[2], bc_options[0], bc_options[2], bc_options[1]]
     
@@ -150,6 +150,7 @@ with col_left:
                 index=bc_options.index(default_val),
                 key=f"edge_bc_{i}"
             )
+
 with col_right:
     try:
         pts = edited_df[['X', 'Y']].dropna().to_numpy()
@@ -159,14 +160,14 @@ with col_right:
 
         vertices, triangles = generate_custom_mesh(pts, min_angle, max_area)
 
-        # Створення підписів граничних умов для таблиці
+        # Створення підписів граничних умов з безпечним доступом через .get()
         custom_markers = []
         for v in vertices:
             edge_ids = get_edge_indices(v, pts)
             if not edge_ids:
                 custom_markers.append("Внутрішній (0)")
             else:
-                labels = [f"Грань {e+1} [{boundary_types[e].split()[0]}]" for e in edge_ids]
+                labels = [f"Грань {e+1} [{boundary_types.get(e, '1° род').split()[0]}]" for e in edge_ids]
                 custom_markers.append(" + ".join(labels))
 
         m1, m2, m3 = st.columns(3)
@@ -222,4 +223,4 @@ with col_right:
                     st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True)
 
     except Exception as e:
-        st.error(f"Помилка генерації: {e}. Спробуйте змінити параметри (наприклад, зменшити вимоги до кута).")
+        st.error(f"Помилка генерації: {e}. Спробуйте змінити параметри.")
