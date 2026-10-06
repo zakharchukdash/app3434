@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
 
-# Базові налаштування сторінки
 st.set_page_config(page_title="Генератор сітки", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -15,25 +14,27 @@ st.markdown("""
     <h3 style='text-align: center; color: #2C3E50; margin-bottom: 0;'>Система розбиття області на скінченні елементи</h3>
 """, unsafe_allow_html=True)
 
+
+# Ця функція бере один трикутник і перевіряє чи він якісний
 def calculate_triangle_properties(pts):
-    """Обчислює геометричні параметри трикутника: площу, мінімальний кут та центр описаного кола."""
     A, B, C = pts[0], pts[1], pts[2]
+    
+    # Рахуємо довжини сторін(евклідова норма вектора).
     a = np.linalg.norm(B - C)
     b = np.linalg.norm(A - C)
     c = np.linalg.norm(A - B)
     
-    # Площа за формулою Герона
     s = (a + b + c) / 2.0
     area = np.sqrt(max(s * (s - a) * (s - b) * (s - c), 0))
     
-    # Мінімальний кут за теоремою косинусів
     angles = []
     for x, y, z in [(a,b,c), (b,a,c), (c,a,b)]:
         val = np.clip((y**2 + z**2 - x**2) / (2 * y * z), -1.0, 1.0)
         angles.append(np.degrees(np.arccos(val)))
         
-    # Координати центру описаного кола
+    # Рахуємо координати центру описаного кола 
     D = 2 * (A[0]*(B[1]-C[1]) + B[0]*(C[1]-A[1]) + C[0]*(A[1]-B[1]))
+    
     if abs(D) < 1e-10:
         return min(angles), area, None
         
@@ -42,10 +43,13 @@ def calculate_triangle_properties(pts):
     
     return min(angles), area, [Ux, Uy]
 
+
 def generate_custom_mesh(polygon, min_angle, max_area, max_iter=500):
-    """Основний алгоритм генерації сітки з контролем якості."""
-    target_len = np.sqrt(max_area) * 1.5
+    # нарізаємо контур фігури на початкові точки
+    target_len = np.sqrt(max_area) * 1.5     # бажана відстань між точками (залежить від обмеження площі).
     points = []
+    
+    # Йдемо по периметру багатокутника і рівномірно розставляємо точки вздовж кожного ребра
     for i in range(len(polygon)):
         p1 = polygon[i]
         p2 = polygon[(i+1) % len(polygon)]
@@ -55,21 +59,25 @@ def generate_custom_mesh(polygon, min_angle, max_area, max_iter=500):
             points.append(p1 + (p2 - p1) * (j / n_segs))
             
     points = np.array(points)
-    path = Path(polygon)
+    path = Path(polygon)  # Об'єкт контуру
     
     for _ in range(max_iter):
+        # Будуємо сітку Делоне на наявних точках
         tri = Delaunay(points)
-        simplices = tri.simplices
+        simplices = tri.simplices  # списки трійок вузлів для кожного трикутника
         
+        # Відкидаємо трикутники, які вилізли за межі фігури
         centroids = np.mean(points[simplices], axis=1)
         mask = path.contains_points(centroids, radius=-1e-5)
         simplices = simplices[mask]
         
+        # Шукаємо трикутники які порушують вимоги
         bad_triangles = []
         for s in simplices:
             angle, area, cc = calculate_triangle_properties(points[s])
             if cc is not None:
                 if area > max_area or angle < min_angle:
+                    # наскільки сильно трикутник порушує норму.
                     score = max(0, area - max_area) + max(0, min_angle - angle)
                     centroid = np.mean(points[s], axis=0)
                     bad_triangles.append((score, cc, centroid))
@@ -77,66 +85,82 @@ def generate_custom_mesh(polygon, min_angle, max_area, max_iter=500):
         if not bad_triangles:
             break
             
+        # Сортуємо дефектні трикутники, спочатку виправляємо найгірші
         bad_triangles.sort(key=lambda x: x[0], reverse=True)
         added = False
+        
         for _, cc, centroid in bad_triangles:
+            # ставимо нову точку в центр описаного кола.
             candidate = cc if path.contains_point(cc) else centroid
+            
+            # не додаємо точку якщо вона ближче ніж 0.001 до вже наявних
             if np.min(np.linalg.norm(points - candidate, axis=1)) > 1e-3:
-                points = np.vstack([points, candidate])
+                points = np.vstack([points, candidate])  # Додаємо нову точку в масив
                 added = True
                 break
                 
         if not added:
             break
             
+    # Фінальна побудова сітки з усіма новими точками.
     tri = Delaunay(points)
     simplices = tri.simplices
     centroids = np.mean(points[simplices], axis=1)
     mask = path.contains_points(centroids, radius=-1e-6)
+    
+    # Повертаємо координати всіх точок і масив зв'язності
     return points, simplices[mask]
 
+
+# функція визначає на якій грані лежить кожна точка
 def get_edge_indices(p, polygon_pts):
-    """Визначає індекси граней контуру, на яких лежить точка."""
-    tol = 1e-5
+    tol = 1e-5  
     edge_ids = []
     n = len(polygon_pts)
+    
+    # Перевіряємо кожне ребро багатокутника.
     for i in range(n):
         p1 = polygon_pts[i]
         p2 = polygon_pts[(i+1) % n]
         
+        # Рахуємо відстані: від початку ребра до точки, від точки до кінця і повну довжину ребра
         d_p1_p = np.linalg.norm(p - p1)
         d_p_p2 = np.linalg.norm(p2 - p)
         d_p1_p2 = np.linalg.norm(p2 - p1)
         
+        # якщо d(P1, P) + d(P, P2) == d(P1, P2) точка точно лежить на цьому відрізку
         if abs(d_p1_p + d_p_p2 - d_p1_p2) < tol:
             edge_ids.append(i)
+            
+    # Повертає список номерів граней
     return edge_ids
 
-# --- Інтерфейс програми ---
+
 col_left, col_right = st.columns([1.1, 2.1])
 
 with col_left:
     st.subheader("⚙️ Налаштування")
+    # Повзунки для зміни порогів якості сітки.
     min_angle = st.slider("Мінімальний кут (градуси)", 0.0, 33.0, 20.0, step=1.0)
     max_area = st.number_input("Обмеження площі (згущення)", 0.01, 1.0, 0.05, step=0.01)
     show_labels = st.checkbox("Показувати підписи", value=True)
     
     st.subheader("📍 Контур та граничні умови")
-    # Базовий контур: прямокутник 1х2 для 6-го варіанта
+    # Задаємо початкові координати вершин контуру Варіанта 6: прямокутник 1 на 2.
     default_df = pd.DataFrame({
         'X': [0.0, 1.0, 1.0, 0.0],
         'Y': [0.0, 0.0, 2.0, 2.0]
     })
+    # Таблиця, де користувач може вручну змінити координати точок прямо в браузері.
     edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True, height=160)
     
-    # Дефолтні умови варіанта 6:
-    # Грань 1: 3-й род, Грань 2: 1-й род, Грань 3: 3-й род, Грань 4: 2-й род
+    # Випадаючі списки для вибору фізичних умов на кожній грані (за Варіантом 6).
     bc_options = ["1° род (u=0)", "2° род (Nu=0)", "3° род (βNu+δ(u-uc)=0)"]
     v6_presets = [bc_options[2], bc_options[0], bc_options[2], bc_options[1]]
     
     pts_current = edited_df[['X', 'Y']].dropna().to_numpy()
     boundary_types = {}
-    
+
     if len(pts_current) >= 3:
         st.markdown("**Типи умов на гранях:**")
         n_edges = len(pts_current)
@@ -160,7 +184,6 @@ with col_right:
 
         vertices, triangles = generate_custom_mesh(pts, min_angle, max_area)
 
-        # Створення підписів граничних умов з безпечним доступом через .get()
         custom_markers = []
         for v in vertices:
             edge_ids = get_edge_indices(v, pts)
@@ -196,7 +219,7 @@ with col_right:
             polygon_pts = np.vstack((pts, pts[0]))
             ax.plot(polygon_pts[:,0], polygon_pts[:,1], 'g--', linewidth=1.5, alpha=0.5, label="Контур")
 
-            ax.set_aspect('equal')
+            ax.set_aspect('equal') 
             ax.margins(0.1)
             ax.grid(True, linestyle='--', alpha=0.5, color='#BDC3C7')
             ax.set_xlabel('X', fontweight='bold')
