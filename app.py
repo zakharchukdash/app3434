@@ -141,16 +141,15 @@ with col_left:
         st.markdown("**Типи умов на гранях:**")
         n_edges = len(pts_current)
         for i in range(n_edges):
-            p_s = tuple(pts_current[i])
-            p_e = tuple(pts_current[(i+1) % n_edges])
+            p_s = f"({pts_current[i][0]:.1f}, {pts_current[i][1]:.1f})"
+            p_e = f"({pts_current[(i+1) % n_edges][0]:.1f}, {pts_current[(i+1) % n_edges][1]:.1f})"
             default_val = v6_presets[i] if i < len(v6_presets) else bc_options[0]
             boundary_types[i] = st.selectbox(
-                f"Грань {i+1} {p_s}→{p_e}",
+                f"Грань {i+1}: {p_s} → {p_e}",
                 bc_options,
                 index=bc_options.index(default_val),
                 key=f"edge_bc_{i}"
             )
-
 with col_right:
     try:
         pts = edited_df[['X', 'Y']].dropna().to_numpy()
