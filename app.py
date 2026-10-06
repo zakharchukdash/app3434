@@ -138,7 +138,10 @@ with col_left:
     show_labels = st.checkbox("Показувати підписи", value=True)
     
     st.subheader("📍 Координати контуру")
-    default_df = pd.DataFrame({'X': [0.0, 0.0, 2.0, 1.0], 'Y': [1.0, 2.0, 0.0, 0.0]})
+    default_df = pd.DataFrame({
+    'X': [0.0, 1.0, 1.0, 0.0],
+    'Y': [0.0, 0.0, 2.0, 2.0]
+})
     edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True, height=200)
 
 # Права панель: Візуалізація та вивід таблиць
