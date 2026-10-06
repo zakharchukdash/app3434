@@ -223,4 +223,4 @@ with col_right:
                     st.dataframe(df_tri.style.set_properties(**{'background-color': '#f8f9fa'}), use_container_width=True)
 
     except Exception as e:
-        st.error(f
+        st.error(f"Помилка генерації: {e}. Спробуйте змінити параметри (наприклад, зменшити вимоги до кута).")
