@@ -356,13 +356,16 @@ with col_right:
                 c_k, c_m, c_q = st.columns(3)
                 with c_k:
                     st.write("**$K_0$ (Жорсткість):**")
-                    st.dataframe(pd.DataFrame(np.round(K0, 4), index=cols_labels, columns=cols_labels))
+                    df_K0 = pd.DataFrame(K0, index=cols_labels, columns=cols_labels)
+                    st.dataframe(df_K0.style.format("{:.4e}"))
                 with c_m:
                     st.write("**$M_0$ (Маса):**")
-                    st.dataframe(pd.DataFrame(np.round(M0, 4), index=cols_labels, columns=cols_labels))
+                    df_M0 = pd.DataFrame(M0, index=cols_labels, columns=cols_labels)
+                    st.dataframe(df_M0.style.format("{:.4e}"))
                 with c_q:
                     st.write("**$Q_0$ (Права частина):**")
-                    st.dataframe(pd.DataFrame(np.round(Q0, 4), index=cols_labels, columns=["Q"]))
+                    df_Q0 = pd.DataFrame(Q0, index=cols_labels, columns=["Q"])
+                    st.dataframe(df_Q0.style.format("{:.4e}"))
                     
             st.markdown("---")
             st.markdown("#### Граничні елементи (Re та Pe)")
@@ -385,10 +388,12 @@ with col_right:
             col_a, col_b = st.columns([3, 1])
             with col_a:
                 st.write(f"**Глобальна матриця $A$ ({len(vertices)} × {len(vertices)}):**")
-                st.dataframe(pd.DataFrame(np.round(A_glob, 4), index=node_labels, columns=node_labels), use_container_width=True)
+                df_A = pd.DataFrame(A_glob, index=node_labels, columns=node_labels)
+                st.dataframe(df_A.style.format("{:.4e}"), use_container_width=True)
             with col_b:
                 st.write(f"**Вектор $b$:**")
-                st.dataframe(pd.DataFrame(np.round(b_glob, 4), index=node_labels, columns=["b"]), use_container_width=True)
+                df_b = pd.DataFrame(b_glob, index=node_labels, columns=["b"])
+                st.dataframe(df_b.style.format("{:.4e}"), use_container_width=True)
 
     except Exception as e:
         st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри.")
