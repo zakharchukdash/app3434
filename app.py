@@ -109,25 +109,15 @@ def get_edge_indices(p, polygon_pts):
     return edge_ids
 
 
-# -------------------------------------------------------------
-# МСЕ: ОБЧИСЛЕННЯ ЛОКАЛЬНИХ ТА ГЛОБАЛЬНИХ МАТРИЦЬ
-# -------------------------------------------------------------
 def compute_element_matrices(nodes_coords, a11, a22, d_coef, f_func):
-    """
-    Обчислення локальних Ke, Me, Qe для трикутного скінченного елемента.
-    nodes_coords: координати трьох вершин трикутника [[x1, y1], [x2, y2], [x3, y3]]
-    """
     (x1, y1), (x2, y2), (x3, y3) = nodes_coords
     
-    # Подвоєна площа (визначник матриці координат)
     delta = (x2*y3 - x3*y2) - (x1*y3 - x3*y1) + (x1*y2 - x2*y1)
     
-    # Захист від від'ємної орієнтації вершин
     if delta < 0:
         x2, y2, x3, y3 = x3, y3, x2, y2
         delta = -delta
 
-    # Коефіцієнти лінійних базисних функцій
     b = np.array([y2 - y3, y3 - y1, y1 - y2])
     c = np.array([x3 - x2, x1 - x3, x2 - x1])
     
@@ -156,9 +146,6 @@ def compute_element_matrices(nodes_coords, a11, a22, d_coef, f_func):
 
 
 def find_boundary_edges(triangles, vertices, polygon_pts):
-    """
-    Знаходить ребра сітки, які лежать на границі розрахункової області.
-    """
     edge_dict = {}
     for elem_id, tri in enumerate(triangles):
         for i in range(3):
@@ -171,12 +158,11 @@ def find_boundary_edges(triangles, vertices, polygon_pts):
     n_poly = len(polygon_pts)
     
     for (n1, n2), elems in edge_dict.items():
-        if len(elems) == 1:  # Зовнішнє ребро границі
+        if len(elems) == 1:
             p1 = vertices[n1]
             p2 = vertices[n2]
             p_mid = 0.5 * (p1 + p2)
             
-            # Перевіряємо, на якій саме грані полігону знаходиться середина відрізка
             for edge_idx in range(n_poly):
                 poly1 = polygon_pts[edge_idx]
                 poly2 = polygon_pts[(edge_idx + 1) % n_poly]
@@ -191,15 +177,12 @@ def find_boundary_edges(triangles, vertices, polygon_pts):
     return boundary_edges
 
 
-def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, bc_params, f_func):
-    """
-    Формування глобальної матриці A та вектора правої частини b (Ансамблювання).
-    """
+def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, bc_types, bc_params, f_func):
     num_nodes = len(vertices)
     A_global = np.zeros((num_nodes, num_nodes))
     b_global = np.zeros(num_nodes)
     
-    # 1. Ансамблювання по скінченних елементах (область Omega)
+    # 1. Ансамблювання по області (Ke + Me, Qe)
     for elem_idx, tri in enumerate(triangles):
         coords = vertices[tri]
         Ke, Me, Qe = compute_element_matrices(coords, a11, a22, d_coef, f_func)
@@ -209,28 +192,41 @@ def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, b
             for local_j, global_j in enumerate(tri):
                 A_global[global_i, global_j] += (Ke[local_i, local_j] + Me[local_i, local_j])
                 
-    # 2. Ансамблювання по граничних елементах (межа Gamma)
+    # 2. Ансамблювання по граничних елементах (тільки для 3-го роду / Робіна)
     for n1, n2, edge_idx, gamma_len in boundary_edges:
-        params = bc_params[edge_idx]
-        beta = params["beta"]
-        sigma = params["sigma"]
-        psi = params["psi"]
-        
-        # Локальна матриця Re і вектор Pe
-        Re = (sigma / beta) * (gamma_len / 6.0) * np.array([[2.0, 1.0], [1.0, 2.0]])
-        Pe = (psi / beta) * (gamma_len / 2.0) * np.array([1.0, 1.0])
-        
-        boundary_nodes = [n1, n2]
-        for loc_i, glob_i in enumerate(boundary_nodes):
-            b_global[glob_i] += Pe[loc_i]
-            for loc_j, glob_j in enumerate(boundary_nodes):
-                A_global[glob_i, glob_j] += Re[loc_i, loc_j]
-                
+        if "3°" in bc_types.get(edge_idx, ''):
+            params = bc_params[edge_idx]
+            beta = params["beta"]
+            sigma = params["sigma"]
+            psi = params["psi"]
+            
+            Re = (sigma / beta) * (gamma_len / 6.0) * np.array([[2.0, 1.0], [1.0, 2.0]])
+            Pe = (psi / beta) * (gamma_len / 2.0) * np.array([1.0, 1.0])
+            
+            boundary_nodes = [n1, n2]
+            for loc_i, glob_i in enumerate(boundary_nodes):
+                b_global[glob_i] += Pe[loc_i]
+                for loc_j, glob_j in enumerate(boundary_nodes):
+                    A_global[glob_i, glob_j] += Re[loc_i, loc_j]
+                    
+    # 3. Врахування умов 1-го роду (Діріхле: u = 0) класичним способом
+    dirichlet_nodes = set()
+    for n1, n2, edge_idx, _ in boundary_edges:
+        if "1°" in bc_types.get(edge_idx, ''):
+            dirichlet_nodes.add(n1)
+            dirichlet_nodes.add(n2)
+            
+    for node in dirichlet_nodes:
+        A_global[node, :] = 0.0
+        A_global[:, node] = 0.0
+        A_global[node, node] = 1.0
+        b_global[node] = 0.0
+                    
     return A_global, b_global
 
 
 # -------------------------------------------------------------
-# ІНТЕРФЕЙС КОРИСТУВАЧА
+# ІНТЕРФЕЙС
 # -------------------------------------------------------------
 col_left, col_right = st.columns([1.1, 2.1])
 
@@ -256,11 +252,10 @@ with col_left:
     edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True, height=140)
     
     bc_options = [
-        "1° род / Діріхле (β→0, σ→∞)", 
-        "2° род / Нейман (σ→0, β→∞)", 
-        "3° род / Робін (β Nu + σ u = ψ)"
+        "1° род (u=0)", 
+        "2° род (Nu=0)", 
+        "3° род (βNu+σu=ψ)"
     ]
-    # Налаштування за Варіантом 6
     v6_presets = [bc_options[2], bc_options[0], bc_options[2], bc_options[1]]
     
     pts_current = edited_df[['X', 'Y']].dropna().to_numpy()
@@ -283,13 +278,8 @@ with col_left:
             )
             boundary_types[i] = chosen_bc
             
-            # Числові значення β, σ, ψ з методичних вказівок
-            if "Діріхле" in chosen_bc:
-                bc_numerical_params[i] = {"beta": 1e-5, "sigma": 1e5, "psi": 0.0}
-            elif "Нейман" in chosen_bc:
-                bc_numerical_params[i] = {"beta": 1e5, "sigma": 1e-5, "psi": 0.0}
-            else:
-                bc_numerical_params[i] = {"beta": 1.0, "sigma": 1.0, "psi": 1.0}
+            # Параметри для 3-го роду
+            bc_numerical_params[i] = {"beta": 1.0, "sigma": 1.0, "psi": 1.0}
 
 with col_right:
     try:
@@ -315,9 +305,8 @@ with col_right:
         m2.metric("🔺 Трикутників", len(triangles))
         m3.metric("📐 Граничних ребер", len(boundary_edges))
 
-        # Формуємо матриці МСЕ
         A_glob, b_glob = assemble_global_fem(
-            vertices, triangles, boundary_edges, a11, a22, d_coef, bc_numerical_params, f_func
+            vertices, triangles, boundary_edges, a11, a22, d_coef, boundary_types, bc_numerical_params, f_func
         )
 
         tab1, tab2, tab3 = st.tabs(["📊 Візуалізація", "🗄 Локальні матриці", "🌐 Глобальна СЛАР (A, b)"])
@@ -347,39 +336,46 @@ with col_right:
             st.pyplot(fig, use_container_width=False)
 
         with tab2:
-            st.markdown("#### Локальні матриці першого трикутника (Елемент 0)")
-            if len(triangles) > 0:
-                elem_0_tri = triangles[0]
-                K0, M0, Q0 = compute_element_matrices(vertices[elem_0_tri], a11, a22, d_coef, f_func)
-                
-                cols_labels = [f"Вузол {n}" for n in elem_0_tri]
-                c_k, c_m, c_q = st.columns(3)
-                with c_k:
-                    st.write("**$K_0$ (Жорсткість):**")
-                    df_K0 = pd.DataFrame(K0, index=cols_labels, columns=cols_labels)
-                    st.dataframe(df_K0.style.format("{:.4e}"))
-                with c_m:
-                    st.write("**$M_0$ (Маса):**")
-                    df_M0 = pd.DataFrame(M0, index=cols_labels, columns=cols_labels)
-                    st.dataframe(df_M0.style.format("{:.4e}"))
-                with c_q:
-                    st.write("**$Q_0$ (Права частина):**")
-                    df_Q0 = pd.DataFrame(Q0, index=cols_labels, columns=["Q"])
-                    st.dataframe(df_Q0.style.format("{:.4e}"))
+            st.markdown("### Локальні матриці скінченних елементів ($\Omega_e$)")
+            for elem_id, tri in enumerate(triangles):
+                with st.expander(f"🔺 Елемент №{elem_id} (Вузли: {tri[0]}, {tri[1]}, {tri[2]})", expanded=(elem_id == 0)):
+                    Ke, Me, Qe = compute_element_matrices(vertices[tri], a11, a22, d_coef, f_func)
                     
+                    c_k, c_m, c_q = st.columns([1.2, 1.2, 0.8])
+                    with c_k:
+                        st.write(f"**Матриця жорсткості $K_{{{elem_id}}}$:**")
+                        st.dataframe(pd.DataFrame(np.round(Ke, 4)), use_container_width=True)
+                    with c_m:
+                        st.write(f"**Матриця мас $M_{{{elem_id}}}$:**")
+                        st.dataframe(pd.DataFrame(np.round(Me, 4)), use_container_width=True)
+                    with c_q:
+                        st.write(f"**Вектор $Q_{{{elem_id}}}$:**")
+                        st.dataframe(pd.DataFrame(np.round(Qe, 4), columns=["Значення"]), use_container_width=True)
+
             st.markdown("---")
-            st.markdown("#### Граничні елементи (Re та Pe)")
-            if len(boundary_edges) > 0:
-                df_edges_data = []
-                for n1, n2, e_idx, length in boundary_edges[:5]:
-                    df_edges_data.append({
-                        "Ребро": f"{n1} — {n2}",
-                        "Грань": e_idx + 1,
-                        "Довжина": np.round(length, 4),
-                        "Умова": boundary_types.get(e_idx, '').split()[0]
-                    })
-                st.write("Перші 5 граничних ребер сітки:")
-                st.table(pd.DataFrame(df_edges_data))
+            st.markdown("### Граничні матриці для ребер 3-го типу (Робіна)")
+            st.info("Значення $R_e$ та $P_e$ залежать від довжини відрізка на межі.")
+            
+            robin_edges = [e for e in boundary_edges if "3°" in boundary_types.get(e[2], '')]
+            
+            if len(robin_edges) == 0:
+                st.write("Немає ребер з умовою 3-го роду.")
+            else:
+                for idx, (n1, n2, e_idx, gamma_len) in enumerate(robin_edges):
+                    with st.expander(f"🔹 Граничне ребро №{idx+1} (Між вузлами [{n1}, {n2}])"):
+                        params = bc_numerical_params[e_idx]
+                        beta, sigma, psi = params["beta"], params["sigma"], params["psi"]
+                        
+                        Re = (sigma / beta) * (gamma_len / 6.0) * np.array([[2.0, 1.0], [1.0, 2.0]])
+                        Pe = (psi / beta) * (gamma_len / 2.0) * np.array([1.0, 1.0])
+                        
+                        c_r, c_p = st.columns([1.2, 0.8])
+                        with c_r:
+                            st.write(f"**$R_{{{idx+1}}}$:**")
+                            st.dataframe(pd.DataFrame(np.round(Re, 4)), use_container_width=True)
+                        with c_p:
+                            st.write(f"**$P_{{{idx+1}}}$:**")
+                            st.dataframe(pd.DataFrame(np.round(Pe, 4), columns=["Значення"]), use_container_width=True)
 
         with tab3:
             st.markdown("#### Глобальна матриця $A$ та вектор $b$")
@@ -388,12 +384,10 @@ with col_right:
             col_a, col_b = st.columns([3, 1])
             with col_a:
                 st.write(f"**Глобальна матриця $A$ ({len(vertices)} × {len(vertices)}):**")
-                df_A = pd.DataFrame(A_glob, index=node_labels, columns=node_labels)
-                st.dataframe(df_A.style.format("{:.4e}"), use_container_width=True)
+                st.dataframe(pd.DataFrame(np.round(A_glob, 4), index=node_labels, columns=node_labels), use_container_width=True)
             with col_b:
                 st.write(f"**Вектор $b$:**")
-                df_b = pd.DataFrame(b_glob, index=node_labels, columns=["b"])
-                st.dataframe(df_b.style.format("{:.4e}"), use_container_width=True)
+                st.dataframe(pd.DataFrame(np.round(b_glob, 4), index=node_labels, columns=["b"]), use_container_width=True)
 
     except Exception as e:
         st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри.")
