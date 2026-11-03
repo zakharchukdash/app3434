@@ -5,17 +5,16 @@ import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
 
-st.set_page_config(page_title="МСЕ: Формування матриць", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="МСЕ: Розбиття та матриці", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem; padding-bottom: 0rem; }
     </style>
     <h3 style='text-align: center; color: #2C3E50; margin-bottom: 0;'>
-        Формування матриць МСЕ на лінійних трикутних елементах
+        Система розбиття області та формування матриць МСЕ
     </h3>
 """, unsafe_allow_html=True)
-
 
 def calculate_triangle_properties(pts):
     A, B, C = pts[0], pts[1], pts[2]
@@ -108,7 +107,6 @@ def get_edge_indices(p, polygon_pts):
             edge_ids.append(i)
     return edge_ids
 
-
 def compute_element_matrices(nodes_coords, a11, a22, d_coef, f_func):
     (x1, y1), (x2, y2), (x3, y3) = nodes_coords
     
@@ -121,13 +119,11 @@ def compute_element_matrices(nodes_coords, a11, a22, d_coef, f_func):
     b = np.array([y2 - y3, y3 - y1, y1 - y2])
     c = np.array([x3 - x2, x1 - x3, x2 - x1])
     
-    # 1. Локальна матриця жорсткості Ke
     Ke = np.zeros((3, 3))
     for i in range(3):
         for j in range(3):
             Ke[i, j] = (a11 * b[i] * b[j] + a22 * c[i] * c[j]) / (2.0 * delta)
             
-    # 2. Локальна матриця мас Me
     mass_template = np.array([
         [2.0, 1.0, 1.0],
         [1.0, 2.0, 1.0],
@@ -182,7 +178,6 @@ def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, b
     A_global = np.zeros((num_nodes, num_nodes))
     b_global = np.zeros(num_nodes)
     
-    # 1. Ансамблювання по області (Ke + Me, Qe)
     for elem_idx, tri in enumerate(triangles):
         coords = vertices[tri]
         Ke, Me, Qe = compute_element_matrices(coords, a11, a22, d_coef, f_func)
@@ -192,7 +187,6 @@ def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, b
             for local_j, global_j in enumerate(tri):
                 A_global[global_i, global_j] += (Ke[local_i, local_j] + Me[local_i, local_j])
                 
-    # 2. Ансамблювання по граничних елементах (тільки для 3-го роду / Робіна)
     for n1, n2, edge_idx, gamma_len in boundary_edges:
         if "3°" in bc_types.get(edge_idx, ''):
             params = bc_params[edge_idx]
@@ -209,7 +203,7 @@ def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, b
                 for loc_j, glob_j in enumerate(boundary_nodes):
                     A_global[glob_i, glob_j] += Re[loc_i, loc_j]
                     
-    # 3. Врахування умов 1-го роду (Діріхле: u = 0) класичним способом
+    # 3. Врахування умов 1-го роду (Діріхле)
     dirichlet_nodes = set()
     for n1, n2, edge_idx, _ in boundary_edges:
         if "1°" in bc_types.get(edge_idx, ''):
@@ -225,9 +219,6 @@ def assemble_global_fem(vertices, triangles, boundary_edges, a11, a22, d_coef, b
     return A_global, b_global
 
 
-# -------------------------------------------------------------
-# ІНТЕРФЕЙС
-# -------------------------------------------------------------
 col_left, col_right = st.columns([1.1, 2.1])
 
 with col_left:
@@ -252,9 +243,9 @@ with col_left:
     edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True, height=140)
     
     bc_options = [
-        "1° род (u=0)", 
-        "2° род (Nu=0)", 
-        "3° род (βNu+σu=ψ)"
+        "1° рід (u=0)", 
+        "2° рід (Nu=0)", 
+        "3° рід (βNu+σu=ψ)"
     ]
     v6_presets = [bc_options[2], bc_options[0], bc_options[2], bc_options[1]]
     
@@ -277,8 +268,6 @@ with col_left:
                 key=f"edge_bc_{i}"
             )
             boundary_types[i] = chosen_bc
-            
-            # Параметри для 3-го роду
             bc_numerical_params[i] = {"beta": 1.0, "sigma": 1.0, "psi": 1.0}
 
 with col_right:
@@ -291,25 +280,43 @@ with col_right:
         vertices, triangles = generate_custom_mesh(pts, min_angle, max_area)
         boundary_edges = find_boundary_edges(triangles, vertices, pts)
 
+        # Рахуємо кути кожного трикутника для таблиці Topology
+        tri_angles = []
+        for t in triangles:
+            ang, _, _ = calculate_triangle_properties(vertices[t])
+            tri_angles.append(ang)
+        overall_min_angle = min(tri_angles) if len(tri_angles) > 0 else 0.0
+
+        # Формування міток для таблиці крайових міток
         custom_markers = []
+        numeric_markers = []
+        condition_labels = []
         for v in vertices:
             edge_ids = get_edge_indices(v, pts)
             if not edge_ids:
-                custom_markers.append("Внутрішній (0)")
+                numeric_markers.append(0)
+                condition_labels.append("Внутрішній")
             else:
-                labels = [f"Грань {e+1} [{boundary_types.get(e, '1° род').split()[0]}]" for e in edge_ids]
-                custom_markers.append(" + ".join(labels))
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("🔴 Вузлів", len(vertices))
-        m2.metric("🔺 Трикутників", len(triangles))
-        m3.metric("📐 Граничних ребер", len(boundary_edges))
+                primary_edge = edge_ids[0]
+                numeric_markers.append(primary_edge + 1)
+                bc_name = boundary_types.get(primary_edge, '')
+                if "1°" in bc_name:
+                    condition_labels.append("1 (Діріхле)")
+                elif "2°" in bc_name:
+                    condition_labels.append("2 (Неймана)")
+                else:
+                    condition_labels.append("3 (Робіна)")
 
         A_glob, b_glob = assemble_global_fem(
             vertices, triangles, boundary_edges, a11, a22, d_coef, boundary_types, bc_numerical_params, f_func
         )
 
-        tab1, tab2, tab3 = st.tabs(["📊 Візуалізація", "🗄 Локальні матриці", "🌐 Глобальна СЛАР (A, b)"])
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📊 Візуалізація", 
+            "📋 Сітка та топологія", 
+            "🗄 Локальні матриці", 
+            "🌐 Глобальна СЛАР (A, b)"
+        ])
 
         with tab1:
             fig, ax = plt.subplots(figsize=(8, 4))
@@ -336,6 +343,29 @@ with col_right:
             st.pyplot(fig, use_container_width=False)
 
         with tab2:
+            st.metric(
+                label="Мінімальний кут",
+                value=f"{overall_min_angle:.2f}°",
+                delta=f"{overall_min_angle - min_angle:.2f}°"
+            )
+            st.markdown(f"**Вузлів:** {len(vertices)} | **Елементів:** {len(triangles)}")
+
+            st.markdown("#### Таблиця зв'язності (Topology)")
+            if len(triangles) > 0:
+                df_topo = pd.DataFrame(triangles, columns=['N1', 'N2', 'N3'])
+                df_topo['Мін. кут (°)'] = np.round(tri_angles, 1)
+                st.dataframe(df_topo, use_container_width=True)
+
+            st.markdown("#### Таблиця вузлів та крайових міток")
+            df_nodes_tags = pd.DataFrame({
+                'X': np.round(vertices[:, 0], 4),
+                'Y': np.round(vertices[:, 1], 4),
+                'Маркер': numeric_markers,
+                'Умова': condition_labels
+            })
+            st.dataframe(df_nodes_tags, use_container_width=True)
+
+        with tab3:
             st.markdown("### Локальні матриці скінченних елементів ($\Omega_e$)")
             for elem_id, tri in enumerate(triangles):
                 with st.expander(f"🔺 Елемент №{elem_id} (Вузли: {tri[0]}, {tri[1]}, {tri[2]})", expanded=(elem_id == 0)):
@@ -357,7 +387,6 @@ with col_right:
             st.info("Значення $R_e$ та $P_e$ залежать від довжини відрізка на межі.")
             
             robin_edges = [e for e in boundary_edges if "3°" in boundary_types.get(e[2], '')]
-            
             if len(robin_edges) == 0:
                 st.write("Немає ребер з умовою 3-го роду.")
             else:
@@ -377,7 +406,7 @@ with col_right:
                             st.write(f"**$P_{{{idx+1}}}$:**")
                             st.dataframe(pd.DataFrame(np.round(Pe, 4), columns=["Значення"]), use_container_width=True)
 
-        with tab3:
+        with tab4:
             st.markdown("#### Глобальна матриця $A$ та вектор $b$")
             node_labels = [f"U_{i}" for i in range(len(vertices))]
             
