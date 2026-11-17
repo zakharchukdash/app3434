@@ -217,7 +217,7 @@ with right:
             "Сітка", "Вузли та топологія", "Локальні матриці", "Глобальні матриці"
         ])
         with tab1:
-            fig, ax = plt.subplots(figsize=(7, 5))
+            fig, ax = plt.subplots(figsize=(4.5, 6.5), dpi=100)
             ax.triplot(vertices[:, 0], vertices[:, 1], triangles, color="black",
                        linewidth=0.8, marker="o", markersize=3)
             if show_labels:
@@ -233,7 +233,7 @@ with right:
             ax.set_aspect("equal")
             ax.grid(alpha=0.3)
             ax.legend()
-            st.pyplot(fig)
+            st.pyplot(fig, use_container_width=False)
             plt.close(fig)
 
         with tab2:
