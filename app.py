@@ -217,7 +217,7 @@ with right:
             "Сітка", "Вузли та топологія", "Локальні матриці", "Глобальні матриці"
         ])
         with tab1:
-            fig, ax = plt.subplots(figsize=(4.5, 6.5), dpi=100)
+            fig, ax = plt.subplots(figsize=(3.8, 5.2), dpi=100)
             ax.triplot(vertices[:, 0], vertices[:, 1], triangles, color="black",
                        linewidth=0.8, marker="o", markersize=3)
             if show_labels:
@@ -229,10 +229,13 @@ with right:
                     ax.text(center[0], center[1], str(i), color="blue", fontsize=8,
                             ha="center")
             contour = np.vstack((polygon, polygon[0]))
-            ax.plot(contour[:, 0], contour[:, 1], "g--", label="Контур")
+            ax.plot(contour[:, 0], contour[:, 1], "g--", linewidth=1.5)
             ax.set_aspect("equal")
+            ax.set_xlim(-0.05, 1.05)
+            ax.set_ylim(-0.05, 2.05)
+            ax.margins(0.01)
             ax.grid(alpha=0.3)
-            ax.legend()
+            fig.tight_layout(pad=0.5)
             st.pyplot(fig, use_container_width=False)
             plt.close(fig)
 
