@@ -186,7 +186,10 @@ with left:
     presets = ["3° Робіна", "1° Діріхле", "3° Робіна", "2° Неймана"]
     bc_types = {}
     for i in range(len(polygon)):
-        label = f"Сторона {i+1}: {tuple(polygon[i])} → {tuple(polygon[(i+1)%len(polygon)])}"
+        j = (i + 1) % len(polygon)
+        label = (f"Сторона {i+1}: "
+                 f"({polygon[i, 0]:g}, {polygon[i, 1]:g}) → "
+                 f"({polygon[j, 0]:g}, {polygon[j, 1]:g})")
         default = presets[i] if i < 4 else choices[0]
         bc_types[i] = st.selectbox(label, choices, choices.index(default), key=f"bc_{i}")
 
@@ -231,12 +234,17 @@ with right:
             contour = np.vstack((polygon, polygon[0]))
             ax.plot(contour[:, 0], contour[:, 1], "g--", linewidth=1.5)
             ax.set_aspect("equal")
-            ax.set_xlim(-0.05, 1.05)
-            ax.set_ylim(-0.05, 2.05)
-            ax.margins(0.01)
+            # Додаємо невеликі поля навколо контуру, щоб номери вузлів не обрізались.
+            xmin, xmax = polygon[:, 0].min(), polygon[:, 0].max()
+            ymin, ymax = polygon[:, 1].min(), polygon[:, 1].max()
+            dx, dy = max(xmax - xmin, 0.1), max(ymax - ymin, 0.1)
+            ax.set_xlim(xmin - 0.12 * dx, xmax + 0.12 * dx)
+            ax.set_ylim(ymin - 0.08 * dy, ymax + 0.08 * dy)
             ax.grid(alpha=0.3)
             fig.tight_layout(pad=0.5)
-            st.pyplot(fig, use_container_width=False)
+            # Явно обмежуємо ширину в пікселях. Streamlit сам збереже пропорції,
+            # тому вся висота прямокутної області поміститься на екрані.
+            st.pyplot(fig, width=330)
             plt.close(fig)
 
         with tab2:
