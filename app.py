@@ -1,3 +1,11 @@
+# ЛАБОРАТОРНА РОБОТА №3. ВАРІАНТ 6
+# Ця програма будує трикутну сітку, обчислює локальні матриці МСЕ
+# та об’єднує їх у глобальну систему A·u = b.
+# Коментарі пояснюють логіку коду, а не змінюють його роботу.
+
+# 1. ПІДКЛЮЧАЄМО БІБЛІОТЕКИ
+# Streamlit створює інтерфейс, NumPy виконує обчислення з матрицями,
+# Pandas показує таблиці, Matplotlib малює сітку, SciPy будує трикутники.
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -5,11 +13,14 @@ import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
 
+# 2. НАЛАШТОВУЄМО ВІКНО ПРОГРАМИ ТА ЗАГОЛОВОК
 st.set_page_config(page_title="МСЕ — варіант 6", layout="wide")
 st.title("МСЕ: триангуляція та формування матриць (варіант 6)")
 
 
-# Геометрія трикутника: мінімальний кут, площа, центр описаного кола.
+# 3. ОБЧИСЛЮЄМО ГЕОМЕТРИЧНІ ХАРАКТЕРИСТИКИ ТРИКУТНИКА
+# За трьома вершинами знаходимо довжини сторін, площу, найменший кут
+# та центр описаного кола. Це потрібно для перевірки якості сітки.
 def triangle_properties(p):
     A, B, C = p
     a = np.linalg.norm(B - C)
@@ -32,6 +43,9 @@ def triangle_properties(p):
     return min(angles), area, np.array([ux, uy])
 
 
+# 4. БУДУЄМО ТРИКУТНУ СІТКУ (ТРИАНГУЛЯЦІЯ)
+# Розміщуємо точки на межі області та з’єднуємо їх у трикутники методом Делоне.
+# Якщо трикутник завеликий або має замалий кут, намагаємося уточнити сітку.
 def generate_mesh(polygon, min_angle, max_area, max_iter=500):
     # Розбиваємо кожну сторону контуру на відрізки.
     step = 1.5 * np.sqrt(max_area)
@@ -74,10 +88,15 @@ def generate_mesh(polygon, min_angle, max_area, max_iter=500):
     return points, triangles[inside]
 
 
+# 5. ПЕРЕВІРЯЄМО, ЧИ НАЛЕЖИТЬ ТОЧКА СТОРОНІ ОБЛАСТІ
+# Це допомагає визначити, де саме розташовані граничні вузли й ребра.
 def point_on_side(p, a, b, tol=1e-5):
     return abs(np.linalg.norm(p-a) + np.linalg.norm(p-b) - np.linalg.norm(b-a)) < tol
 
 
+# 6. ЗНАХОДИМО ГРАНИЧНІ РЕБРА
+# Внутрішнє ребро належить двом трикутникам, а зовнішнє — лише одному.
+# Для зовнішнього ребра визначаємо сторону області та його довжину.
 def get_boundary_edges(vertices, triangles, polygon):
     # Ребро зовнішнє, якщо воно входить тільки в один трикутник.
     counts = {}
@@ -99,6 +118,14 @@ def get_boundary_edges(vertices, triangles, polygon):
     return result
 
 
+# 7. НАЙВАЖЛИВІШЕ: ЛОКАЛЬНІ МАТРИЦІ ОДНОГО ТРИКУТНИКА
+# Беремо координати трьох вершин. Площа S і допоміжні b, c
+# потрібні для похідних лінійних функцій форми.
+# K — матриця жорсткості: Kij = (a11·bi·bj + a22·ci·cj)/(4S).
+# M — матриця мас: M = d·S/12 · [[2,1,1],[1,2,1],[1,1,2]].
+# F — вектор правої частини: F = f·S/3 · [1,1,1].
+# Ці формули отримані після підстановки лінійного наближення
+# у слабке формулювання й аналітичного обчислення інтегралів.
 def local_matrices(coords, a11, a22, d, f):
     # 3 вузли одного трикутника; порядок вузлів не впливає на правильність.
     x1, y1 = coords[0]
@@ -118,6 +145,11 @@ def local_matrices(coords, a11, a22, d, f):
     return K, M, F
 
 
+# 8. СКЛАДАЄМО ГЛОБАЛЬНУ МАТРИЦЮ ТА ВЕКТОР
+# Для кожного трикутника обчислюємо K, M, F.
+# Локальні значення додаємо в загальну матрицю A та вектор rhs
+# за глобальними номерами вузлів. Спільні вузли накопичують внески.
+# Потім враховуємо граничні умови Робіна та Діріхле.
 def assemble(vertices, triangles, boundary_edges, a11, a22, d, f,
              bc_types, beta, delta, u_c):
     n = len(vertices)
@@ -132,6 +164,10 @@ def assemble(vertices, triangles, boundary_edges, a11, a22, d, f,
             for j in range(3):
                 A[tri[i], tri[j]] += K[i, j] + M[i, j]
 
+    # УМОВА РОБІНА (3-Й ТИП)
+    # Для кожного відповідного граничного ребра додаємо
+    # матрицю R до A, а вектор P до правої частини rhs.
+    # Умова Неймана з нульовим потоком не додає внеску.
     # 3-й тип: beta * Nu + delta * (u-u_c) = 0.
     for n1, n2, side, length in boundary_edges:
         if bc_types[side] != "3° Робіна":
@@ -144,8 +180,13 @@ def assemble(vertices, triangles, boundary_edges, a11, a22, d, f,
             for j in range(2):
                 A[nodes[i], nodes[j]] += R[i, j]
 
+    # Зберігаємо копію системи ДО накладання Діріхле,
+    # щоб у програмі можна було порівняти матриці до та після.
     A_full, rhs_full = A.copy(), rhs.copy()
 
+    # УМОВА ДІРІХЛЕ (1-Й ТИП): НА ПРАВІЙ МЕЖІ u = 0
+    # Знаходимо відповідні вузли, зануляємо рядок і стовпець,
+    # ставимо 1 на діагоналі, а у правій частині — 0.
     # 1-й тип: u=0. Для нульового значення зануляємо рядок і стовпець.
     dirichlet_nodes = set()
     for n1, n2, side, _ in boundary_edges:
@@ -160,8 +201,12 @@ def assemble(vertices, triangles, boundary_edges, a11, a22, d, f,
     return A_full, rhs_full, A, rhs
 
 
+# 9. ІНТЕРФЕЙС: ЛІВОРУЧ ПАРАМЕТРИ, ПРАВОРУЧ РЕЗУЛЬТАТИ
+# Ліва колонка дозволяє змінювати вхідні дані.
+# Права показує сітку, таблиці та обчислені матриці.
 left, right = st.columns([1, 2])
 with left:
+    # Коефіцієнти рівняння для варіанта 6: a11=4, a22=3, d=1, f=2.
     st.subheader("Параметри (варіант 6)")
     p1, p2 = st.columns(2)
     a11 = p1.number_input("a₁₁", value=4.0)
@@ -170,17 +215,22 @@ with left:
     f = p2.number_input("f", value=2.0)
     st.caption("a₁₂ = a₂₁ = 0")
 
+    # Налаштування якості сітки: мінімальний кут і максимальна площа.
     st.subheader("Триангуляція")
     min_angle = st.slider("Мінімальний кут", 0, 33, 20)
     max_area = st.number_input("Максимальна площа елемента", min_value=0.01,
                                max_value=1.0, value=0.25, step=0.01)
     show_labels = st.checkbox("Показувати номери вузлів і трикутників", True)
 
+    # Початкова область — прямокутник [0,1] × [0,2].
+    # Координати можна змінити через таблицю в інтерфейсі.
     st.subheader("Контур")
     default_polygon = pd.DataFrame({"X": [0., 1., 1., 0.], "Y": [0., 0., 2., 2.]})
     polygon_table = st.data_editor(default_polygon, num_rows="dynamic", hide_index=True)
     polygon = polygon_table[["X", "Y"]].dropna().to_numpy(dtype=float)
 
+    # Вибираємо тип умови для кожної сторони: Діріхле, Неймана або Робіна.
+    # За замовчуванням: низ/верх — Робіна, право — Діріхле, ліво — Неймана.
     st.subheader("Граничні умови")
     choices = ["1° Діріхле", "2° Неймана", "3° Робіна"]
     presets = ["3° Робіна", "1° Діріхле", "3° Робіна", "2° Неймана"]
@@ -204,6 +254,9 @@ with right:
         st.warning("Для області потрібно щонайменше три точки.")
         st.stop()
 
+    # 10. ЗАПУСКАЄМО ОБЧИСЛЕННЯ
+    # Створюємо сітку, знаходимо граничні ребра,
+    # обчислюємо характеристики трикутників і глобальну систему.
     try:
         vertices, triangles = generate_mesh(polygon, min_angle, max_area)
         if len(triangles) == 0:
@@ -219,6 +272,7 @@ with right:
         tab1, tab2, tab3, tab4 = st.tabs([
             "Сітка", "Вузли та топологія", "Локальні матриці", "Глобальні матриці"
         ])
+        # Вкладка «Сітка»: малюємо трикутники та підписуємо вузли.
         with tab1:
             fig, ax = plt.subplots(figsize=(3.8, 5.2), dpi=100)
             ax.triplot(vertices[:, 0], vertices[:, 1], triangles, color="black",
@@ -247,6 +301,7 @@ with right:
             st.pyplot(fig, width=330)
             plt.close(fig)
 
+        # Вкладка «Вузли та топологія»: показуємо зв’язки вузлів, площі та кути.
         with tab2:
             st.write(f"Вузлів: **{len(vertices)}**, трикутників: **{len(triangles)}**")
             st.write(f"Мінімальний кут: **{min(angles):.2f}°**; "
@@ -268,6 +323,8 @@ with right:
             st.dataframe(pd.DataFrame(node_rows, columns=["X", "Y", "Граничні умови"]),
                          use_container_width=True)
 
+        # Вкладка «Локальні матриці»: для кожного трикутника показуємо K, M, F.
+        # Окремо показуємо R і P для ребер з умовою Робіна.
         with tab3:
             for i, tri in enumerate(triangles):
                 with st.expander(f"Трикутник {i}, вузли {list(tri)}", expanded=(i == 0)):
@@ -292,6 +349,8 @@ with right:
                         c2.write("Вектор P")
                         c2.dataframe(np.round(P, 4))
 
+        # Вкладка «Глобальні матриці»: порівнюємо A та b до і після Діріхле.
+        # Розмір A дорівнює кількості вузлів сітки.
         with tab4:
             matrix_kind = st.radio("Показати матрицю:", [
                 "До накладання умови Діріхле", "Після накладання умови Діріхле"
