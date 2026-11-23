@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -98,43 +99,6 @@ def local_matrices(coords, a11, a22, d, f):
     return K, M, F
 
 
-# Перевірка математичних властивостей локальних матриць.
-def check_local_matrices(coords, K, M, F, d, f):
-    area = triangle_properties(coords)[1]
-    symmetry_K = np.allclose(K, K.T, rtol=1e-9, atol=1e-10)
-    symmetry_M = np.allclose(M, M.T, rtol=1e-9, atol=1e-10)
-    eigenvalues_M = np.linalg.eigvalsh(M)
-    row_sums_K = K.sum(axis=1)
-    rows_correct = np.allclose(row_sums_K, 0.0, rtol=0, atol=1e-9 * max(1.0, np.max(np.abs(K))))
-    sum_F = float(np.sum(F))
-    expected_F = float(f * area)
-    load_correct = np.isclose(sum_F, expected_F, rtol=1e-9, atol=1e-10)
-
-    if d > 0:
-        mass_property = "Додатно визначена"
-        mass_correct = bool(np.all(eigenvalues_M > 0))
-    elif d == 0:
-        mass_property = "Нульова (d = 0)"
-        mass_correct = bool(np.allclose(eigenvalues_M, 0.0, atol=1e-10))
-    else:
-        mass_property = "Від’ємно визначена (d < 0)"
-        mass_correct = bool(np.all(eigenvalues_M < 0))
-
-    return {
-        "Симетричність K": bool(symmetry_K),
-        "Симетричність M": bool(symmetry_M),
-        "Властивість M": mass_property,
-        "Власні значення M": eigenvalues_M,
-        "Суми рядків K": row_sums_K,
-        "Нульові суми рядків K": bool(rows_correct),
-        "Сума F": sum_F,
-        "Очікувана сума F": expected_F,
-        "Коректна сума F": bool(load_correct),
-        "Коректна властивість M": mass_correct,
-        "Усі перевірки": bool(symmetry_K and symmetry_M and mass_correct and rows_correct and load_correct),
-    }
-
-
 # Складання локальних внесків у глобальні A та rhs.
 def assemble(vertices, triangles, a11, a22, d, f):
     n = len(vertices)
@@ -194,9 +158,8 @@ with right:
         areas = [triangle_properties(vertices[tri])[1] for tri in triangles]
         A, rhs = assemble(vertices, triangles, a11, a22, d, f)
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "Сітка", "Вузли та топологія", "Локальні матриці", "Глобальні матриці",
-            "Перевірка коректності локальних матриць"
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "Сітка", "Вузли та топологія", "Локальні матриці", "Глобальні матриці"
         ])
         # Відображення трикутної сітки.
         with tab1:
@@ -267,47 +230,5 @@ with right:
                 st.dataframe(pd.DataFrame(np.round(rhs, 4), index=labels,
                                           columns=["b"]), use_container_width=True)
             st.caption("Система сформована з локальних K, M, F без накладання граничних умов.")
-
-        # Автоматична перевірка коректності локальних матриць.
-        with tab5:
-            st.subheader("Перевірка коректності локальних матриць")
-            st.write("Для кожного трикутника перевіряються симетричність K і M, "
-                     "власні значення M, суми рядків K та відповідність суми F величині f·S.")
-            checks = []
-            for i, tri in enumerate(triangles):
-                K, M, F = local_matrices(vertices[tri], a11, a22, d, f)
-                result = check_local_matrices(vertices[tri], K, M, F, d, f)
-                checks.append((i, tri, result))
-
-            overview = pd.DataFrame([
-                {
-                    "Трикутник": i,
-                    "Симетрична K": "Так" if result["Симетричність K"] else "Ні",
-                    "Симетрична M": "Так" if result["Симетричність M"] else "Ні",
-                    "Властивість M": "Так" if result["Коректна властивість M"] else "Ні",
-                    "Суми рядків K ≈ 0": "Так" if result["Нульові суми рядків K"] else "Ні",
-                    "ΣF = f·S": "Так" if result["Коректна сума F"] else "Ні",
-                    "Підсумок": "Пройдено" if result["Усі перевірки"] else "Помилка",
-                }
-                for i, tri, result in checks
-            ])
-            st.dataframe(overview, use_container_width=True, hide_index=True)
-
-            if all(result["Усі перевірки"] for _, _, result in checks):
-                st.success("Усі локальні матриці пройшли перевірки.")
-            else:
-                st.warning("Деякі перевірки не пройдено. Перегляньте деталі нижче.")
-
-            for i, tri, result in checks:
-                with st.expander(f"Трикутник {i}, вузли {list(tri)}"):
-                    st.write(f"**Симетричність K:** {result['Симетричність K']}")
-                    st.write(f"**Симетричність M:** {result['Симетричність M']}")
-                    st.write(f"**Властивість M:** {result['Властивість M']}")
-                    st.write(f"**Власні значення M:** {np.round(result['Власні значення M'], 8)}")
-                    st.write(f"**Суми рядків K:** {np.round(result['Суми рядків K'], 10)}")
-                    st.write(f"**Сума компонент F:** {result['Сума F']:.10g}")
-                    st.write(f"**Очікуване f·S:** {result['Очікувана сума F']:.10g}")
-                    st.write("**Перевірка:** " + ("Пройдено" if result["Усі перевірки"] else "Помилка"))
-            st.caption("Числові порівняння враховують похибку обчислень з рухомою комою.")
     except (ValueError, RuntimeError) as exc:
         st.error(f"Помилка під час обчислення: {exc}")
