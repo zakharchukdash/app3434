@@ -99,7 +99,7 @@ def local_matrices(coords, a11, a22, d, f):
     return K, M, F
 
 
-# Складання локальних внесків у глобальні A та rhs.
+# Складання локальних внесків у глобальні A
 def assemble(vertices, triangles, a11, a22, d, f):
     n = len(vertices)
     A = np.zeros((n, n))  
