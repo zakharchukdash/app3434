@@ -207,7 +207,7 @@ with right:
         # Локальні матриці кожного трикутника.
         with tab3:
             for i, tri in enumerate(triangles):
-                with st.expander(f"Трикутник {i}, вузли {list(tri)}", expanded=(i == 0)):
+                with st.expander(f"Трикутник {i}, вузли {tri.tolist()}", expanded=(i == 0)):
                     K, M, F = local_matrices(vertices[tri], a11, a22, d, f)
                     c1, c2, c3 = st.columns([2, 2, 1])
                     c1.write("Матриця K")
